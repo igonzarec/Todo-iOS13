@@ -7,24 +7,32 @@
 //
 
 import UIKit
+import CoreData
 
 class TodoListViewController: UITableViewController { //Powerful subclass. Previously it was UIViewController, but to make use of TableView I had to change it.
     
     var itemArray = [Item]()
-    let dataFilePath = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first?.appendingPathComponent("Items.plist")
+    var selectedCategory : Category? {
+        didSet {
+            loadItems()
+        }
+    }
     
-//    let defaults = UserDefaults.standard
+    let context = (UIApplication.shared.delegate as! AppDelegate).persistentContainer.viewContext
+    //  From old approach:  let dataFilePath = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first?.appendingPathComponent("Items.plist")
+    
+    //    let defaults = UserDefaults.standard
     
     override func viewDidLoad() {
         super.viewDidLoad()
+        //                if let items = defaults.array(forKey: "TodoListArray") as? [Item] {
+        //                    itemArray = items
+        //                }
+        //Do any additional setup after loading the view.
+        //        loadItems()
         
-        print(dataFilePath)
-        
-//                if let items = defaults.array(forKey: "TodoListArray") as? [Item] {
-//                    itemArray = items
-//                }
-                 //Do any additional setup after loading the view.
-        loadItems()
+        //Path to where the data is being stored
+        print(FileManager.default.urls(for: .documentDirectory, in: .userDomainMask))
         
     }
     
@@ -48,11 +56,12 @@ class TodoListViewController: UITableViewController { //Powerful subclass. Previ
     //whenever we click on any cell
     override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         
-        if itemArray[indexPath.row].done == false {
-            itemArray[indexPath.row].done = true
-        } else {
-            itemArray[indexPath.row].done = false
-        }
+        //        //Deleting items example:
+        //        //FIRST
+        //        context.delete(itemArray[indexPath.row]) //deletes it in the permanent store
+        //        //SECOND
+        //        itemArray.remove(at: indexPath.row) //deletes it in the view
+        itemArray[indexPath.row].done = !itemArray[indexPath.row].done
         
         saveItems()
         
@@ -74,12 +83,15 @@ class TodoListViewController: UITableViewController { //Powerful subclass. Previ
         let action = UIAlertAction(title: "Add Item", style: .default) { action in
             
             
-            var newItem = Item()
+            
+            var newItem = Item(context: self.context)
             newItem.title = textField.text!
+            newItem.done = false
+            newItem.parentCategory = self.selectedCategory
             //What will happen once the user clicks the Add Item on our UIAlert
             self.itemArray.append(newItem)
             
-//            self.defaults.set(self.itemArray, forKey: "TodoListArray")
+            //            self.defaults.set(self.itemArray, forKey: "TodoListArray")
             self.saveItems()
             
             
@@ -97,31 +109,71 @@ class TodoListViewController: UITableViewController { //Powerful subclass. Previ
     }
     
     func saveItems(){
-        let encoder = PropertyListEncoder()
+        //This is when we were using the first storing data approach. Left the comments for instructional purposes
+        //        let encoder = PropertyListEncoder()
+        //
+        //        do {
+        //            let data = try encoder.encode(itemArray)
+        //            try data.write(to: dataFilePath!)
+        //        } catch {
+        //            print("Error")
+        //        }
         
         do {
-            let data = try encoder.encode(itemArray)
-            try data.write(to: dataFilePath!)
+            try context.save()
         } catch {
-            print("Error")
+            print("Error saving context \(error)")
         }
     }
     
     
-    func loadItems(){
+    func loadItems(with request: NSFetchRequest<Item> = Item.fetchRequest(), predicate: NSPredicate? = nil){
+        
+        // Predicates are defined
+        let categoryPredicate = NSPredicate(format: "parentCategory.name MATCHES %@", selectedCategory!.name!)
         
         
-        if let data = try? Data(contentsOf: dataFilePath!){
-            let decoder = PropertyListDecoder()
-            do {
-                itemArray =  try decoder.decode([Item].self, from: data)
-            } catch {
-                
-            }
+        if let additionalPredicate = predicate {
+            request.predicate = NSCompoundPredicate(andPredicateWithSubpredicates: [categoryPredicate, additionalPredicate])
+        } else {
+            request.predicate = categoryPredicate
+        }
+    
+        
+        do {
+            itemArray = try context.fetch(request)
+        } catch {
+            print("Error fetching data from context \(error)")
+        }
+        
+        tableView.reloadData()
+    }
+    
+    
+}
+
+// MARK: - Search bar methods
+
+extension TodoListViewController: UISearchBarDelegate {
+    func searchBarSearchButtonClicked(_ searchBar: UISearchBar) {
+        
+        let request : NSFetchRequest<Item> = Item.fetchRequest()
+        
+        let predicate = NSPredicate(format: "title CONTAINS[cd] %@", searchBar.text!)
+        
+        request.sortDescriptors = [NSSortDescriptor(key: "title", ascending: true)]
+        
+        loadItems(with: request, predicate: predicate)
+        
+    }
+    
+    func searchBar(_ searchBar: UISearchBar, textDidChange searchText: String) {
+        if searchBar.text?.count == 0 {
+            loadItems()
             
-        
+            DispatchQueue.main.async {
+                searchBar.resignFirstResponder()
+            }
         }
     }
 }
-
-
